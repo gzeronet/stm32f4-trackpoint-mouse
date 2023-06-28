@@ -1,6 +1,4 @@
 #![deny(unsafe_code)]
-// #![allow(warnings)]
-#![allow(clippy::empty_loop)]
 
 use panic_halt as _;
 
@@ -85,174 +83,93 @@ impl TrackPoint {
     }
 
     pub fn write_to_ram_location(&mut self, location: u8, value: u8) {
-        // self.write(0xe2);
         self.write(0xe2);
 
-        // self.read(); // ACK
         self.read();
 
-        // write(0x81);
         self.write(0x81);
-        // read(); // ACK
         self.read();
 
-        // let location = 0x4a;
-        // write(location);
         self.write(location);
-        // read(); // ACK
         self.read();
 
-        // let value = 0x99;
-        // write(value);
         self.write(value);
-        // read(); // ACK
         self.read();
     }
 
     pub fn set_stream_mode(&mut self) {
-        // write(0xea);
         self.write(0xea);
         self.read();
-        // write(0xf4); //enable report
         self.write(0xf4);
         self.read();
 
-        // put mouse into idle mode, ready to send
-        // gohi(_clkPin);
         self.set_scl_hi();
-        // gohi(_dataPin);
         self.set_sda_hi();
     }
 
     pub fn read(&mut self) -> u8 {
-        // uint8_t data = 0x00;
         let mut data = 0x00;
-        // uint8_t bit = 0x01;
         let mut bit = 0x01;
-        // start clock
-        // gohi(_clkPin);
         self.set_scl_hi();
-        // gohi(_dataPin);
         self.set_sda_hi();
-        // delayMicroseconds(50);
         self.delay.delay_us(50_u8);
-
-        // while (digitalRead(_clkPin) == HIGH) ;
-        while self.is_scl_hi() {} // scl 1st fall
-                                  // delayMicroseconds(5);	// not sure why.
+        while self.is_scl_hi() {}
         self.delay.delay_us(5_u8);
-        // while (digitalRead(_clkPin) == LOW) ;	// eat start bit
         while self.is_scl_lo() {}
-        // for (i=0; i < 8; i++)
         for _ in 0..8 {
-            // while (digitalRead(_clkPin) == HIGH) ;
             while self.is_scl_hi() {}
-            // if (digitalRead(_dataPin) == HIGH)
             if self.is_sda_hi() {
-                // data = data | bit;
                 data |= bit;
             }
-            // while (digitalRead(_clkPin) == LOW) ;
             while self.is_scl_lo() {}
-            // bit = bit << 1;
             bit <<= 1;
         }
-        // eat parity bit, ignore it.
-        // self.delay.delay_us(1_u8);
-        // while (digitalRead(_clkPin) == HIGH) ;
         while self.is_scl_hi() {}
 
-        // if self.is_sda_hi() {} // parity
-        // self.delay.delay_us(1_u8);
-        // while (digitalRead(_clkPin) == LOW) ;
         while self.is_scl_lo() {}
-        // eat stop bit
-        // self.delay.delay_us(1_u8);
-        // while (digitalRead(_clkPin) == HIGH) ;
         while self.is_scl_hi() {}
-        // self.delay.delay_us(1_u8);
-        // while (digitalRead(_clkPin) == LOW)
         while self.is_scl_lo() {}
-        // golo(_clkPin);	// hold incoming data
         self.set_scl_lo();
-        // return data
         data
     }
 
-    /* write a uint8_t to the PS2 device */
+    /* write a uint8_t to the trackpoint */
     pub fn write(&mut self, mut data: u8) {
         let mut parity: u8 = 1;
-        // gohi(_clkPin);
         self.set_scl_hi();
-        // gohi(_dataPin);
         self.set_sda_hi();
-        // delayMicroseconds(300);
         self.delay.delay_us(300_u16);
-        // golo(_clkPin);
         self.set_scl_lo();
-        // delayMicroseconds(300);
         self.delay.delay_us(300_u16);
-        // golo(_dataPin);
         self.set_sda_lo();
-        // delayMicroseconds(10);
         self.delay.delay_us(10_u8);
-        // gohi(_clkPin);	// start bit
         self.set_scl_hi();
-        // MADEUP
-        // self.delay.delay_us(10_u32);
 
-        /* wait for device to take control of clock */
-        // while (digitalRead(_clkPin) == HIGH)
+        /* wait for trackpoint to take control of clock */
         while self.is_scl_hi() {}
-        // ;	// this loop intentionally left blank
 
-        // clear to send data
-        // for (i=0; i < 8; i++)
         for _ in 0..8 {
-            // if (data & 0x01)
             if data & 0x01 > 0 {
-                // gohi(_dataPin);
                 self.set_sda_hi();
             } else {
-                // golo(_dataPin);
                 self.set_sda_lo();
             }
-            // wait for clock
-            //    while (digitalRead(_clkPin) == LOW)
             while self.is_scl_lo() {}
-            // while (digitalRead(_clkPin) == HIGH)
             while self.is_scl_hi() {}
-            // parity = parity ^ (data & 0x01);
             parity ^= data & 0x01;
-            // data = data >> 1;
             data >>= 1;
         }
-        // parity bit
-        //    if (parity)
         if parity > 0 {
-            // gohi(_dataPin);
             self.set_sda_hi();
         } else {
-            // golo(_dataPin);
             self.set_sda_lo();
         }
-        // clock cycle - like ack.
-        // while (digitalRead(_clkPin) == LOW)
         while self.is_scl_lo() {}
-        // while (digitalRead(_clkPin) == HIGH)
         while self.is_scl_hi() {}
-        // stop bit
-        // gohi(_dataPin);
         self.set_sda_hi();
-        // delayMicroseconds(50);
         self.delay.delay_us(50_u8);
-        // while (digitalRead(_clkPin) == HIGH)
         while self.is_scl_hi() {}
-        // mode switch
-        // while ((digitalRead(_clkPin) == LOW) || (digitalRead(_dataPin) == LOW))
         while self.is_scl_lo() || self.is_sda_lo() {}
-        // hold up incoming data
-        // golo(_clkPin);
         self.set_scl_lo();
     }
 }

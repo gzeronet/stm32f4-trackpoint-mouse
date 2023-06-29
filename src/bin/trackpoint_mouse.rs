@@ -8,6 +8,7 @@ use panic_halt as _;
 mod app {
     use core::mem::MaybeUninit;
     use stm32f4xx_hal::{
+        gpio::alt::otg_fs::{Dm::PA11, Dp::PA12},
         otg_fs::{UsbBus, UsbBusType, USB},
         prelude::*,
         timer::Event,
@@ -45,8 +46,8 @@ mod app {
             usb_global: ctx.device.OTG_FS_GLOBAL,
             usb_device: ctx.device.OTG_FS_DEVICE,
             usb_pwrclk: ctx.device.OTG_FS_PWRCLK,
-            pin_dm: gpioa.pa11.into_alternate(),
-            pin_dp: gpioa.pa12.into_alternate(),
+            pin_dm: PA11(gpioa.pa11.into_alternate()),
+            pin_dp: PA12(gpioa.pa12.into_alternate()),
             hclk: clocks.hclk(),
         };
 
@@ -86,15 +87,11 @@ mod app {
     #[task(binds=TIM2, shared = [hid, trackpoint])]
     fn tp_data(mut ctx: tp_data::Context) {
         ctx.shared.trackpoint.lock(|trackpoint| {
-            let (state, x, y) = (
-                trackpoint.read(),
-                trackpoint.read() as i8,
-                trackpoint.read() as i8,
-            );
+            let (state, tx, ty) = (trackpoint.read(), trackpoint.read(), trackpoint.read());
             let report = MouseReport {
-                x,
-                y: -y,
-                buttons: state % 16 % 7,
+                x: tx as i8,
+                y: -(ty as i8),
+                buttons: state & 7u8,
                 wheel: 0,
                 pan: 0,
             };

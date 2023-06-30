@@ -2,6 +2,8 @@
 
 ## Let trackpoint module works on stm32f4 with rust embedded
 
+[![stm32_trackpoint](assets/stm32_trackpoint.jpg)](assets/trackpoint_mouse.mp4)
+
 ---
 
 Several years ago, I built a trackpoint keyboard (use tmk repo and convert [arduino-trackpoint-extended](https://github.com/rampadc/arduino-trackpoint-extended) to c).
@@ -14,9 +16,9 @@ Recently, I lost my python job, but I feel so happy to start my own project: Reb
 
 ## Why Rebuild?
 
-* Replaced developing board, teensy 2.0 board is too expensive, stm32f401 is cheaper enough, 1T == 3S .
-* Want to learn rust with its embedded developing to improve my code language kills, but no such code sample/crate for teensy 2.
-* Seem rust embedded is easier than c/c++ to learn. Just follow stmcubeide to build c projects, it drives me crazy.
+* Replaced developing board, teensy 2.0 board is too expensive, stm32f401 is cheaper enough.
+* Want to learn rust with its embedded developing to improve my code language kills, seems no such sample/crate for teensy 2.
+* Feels rust embedded is easier than c/c++ to learn. Just follow stmcubeide to build c projects, it drives me crazy.
 * I like trackpoint than any other mouse hid, but not found frameware in rust version.
 
 So, I tried rewriting the module in rust, and it works perfect as I wanted now.
@@ -39,10 +41,12 @@ So, I tried rewriting the module in rust, and it works perfect as I wanted now.
 
 ---
 
-## Just a sample
+## Known Issue
 
-Here is just a trackpoint mouse bin sample, no keyboard code part, [keyberon](https://github.com/TeXitoi/keyberon) is already works just like a tmk version.
+Debug bin works fine, it looks weird that release build bin not work. Seems the while loop for scl is blocked when reading trackpoint byte. Not sure how to fix it, need experter help.
+
+---
 
 ## TODO
 
-Include keyoard code part, maybe will adjust the repo name.
+Include keyoard code part like [keyberon](https://github.com/TeXitoi/keyberon), maybe will adjust the repo name.

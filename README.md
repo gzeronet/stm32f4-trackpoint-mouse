@@ -2,7 +2,9 @@
 
 ## Let trackpoint module works on stm32f4 with rust embedded
 
-[![stm32_trackpoint](assets/stm32_trackpoint.jpg)](assets/trackpoint_mouse.mp4)
+![stm32_trackpoint](https://github.com/gzeronet/stm32f4-trackpoint-mouse/assets/4970608/368f5f5d-2004-41ab-b564-7431b229c68e)
+
+https://github.com/gzeronet/stm32f4-trackpoint-mouse/assets/4970608/e9068c04-86c7-41cc-81bf-1a115b81c6c1
 
 ---
 

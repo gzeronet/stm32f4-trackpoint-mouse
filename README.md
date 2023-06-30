@@ -31,7 +31,7 @@ So, I tried rewriting the module in rust, and it works perfect as I wanted now.
 
 * Use stm32f4xx_hal, rtic, usb related.
 * TIM EXTI, (GPIO EXTI not work on dynamic pin, hope some one can help).
-* Trackpoint stream mode, (remote mode works, but I not need it).
+* Trackpoint stream mode, (remote mode works, but I don't need).
 
 ---
 

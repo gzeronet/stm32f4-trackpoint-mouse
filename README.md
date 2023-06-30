@@ -21,7 +21,7 @@ Recently, I lost my python job, but I feel so happy to start my own project: Reb
 * Replaced developing board, teensy 2.0 board is too expensive, stm32f401 is cheaper enough.
 * Want to learn rust with its embedded developing to improve my code language kills, seems no such sample/crate for teensy 2.
 * Feels rust embedded is easier than c/c++ to learn. Just follow stmcubeide to build c projects, it drives me crazy.
-* I like trackpoint than any other mouse hid, but not found frameware in rust version.
+* I like trackpoint than any other mouse hid, but not found firmware in rust version.
 
 So, I tried rewriting the module in rust, and it works perfect as I wanted now.
 

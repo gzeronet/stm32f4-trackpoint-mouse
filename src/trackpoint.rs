@@ -136,8 +136,8 @@ impl TrackPoint {
     /* write a uint8_t to the trackpoint */
     pub fn write(&mut self, mut data: u8) {
         let mut parity: u8 = 1;
-        self.set_scl_hi();
         self.set_sda_hi();
+        self.set_scl_hi();
         self.delay.delay_us(300_u16);
         self.set_scl_lo();
         self.delay.delay_us(300_u16);

@@ -85,8 +85,8 @@ mod app {
     }
 
     #[task(binds=TIM2, shared = [hid, trackpoint])]
-    fn tp_data(mut ctx: tp_data::Context) {
-        ctx.shared.trackpoint.lock(|trackpoint| {
+    fn tp_data(ctx: tp_data::Context) {
+        (ctx.shared.trackpoint, ctx.shared.hid).lock(|trackpoint, hid| {
             let (state, tx, ty) = (trackpoint.read(), trackpoint.read(), trackpoint.read());
             let report = MouseReport {
                 x: tx as i8,
@@ -95,7 +95,7 @@ mod app {
                 wheel: 0,
                 pan: 0,
             };
-            ctx.shared.hid.lock(|hid| hid.push_input(&report).ok());
+            hid.push_input(&report).ok();
         });
     }
 

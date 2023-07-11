@@ -3,7 +3,7 @@
 use panic_halt as _;
 
 use stm32f4xx_hal::{
-    gpio::{self, PinState::Low},
+    gpio::{DynamicPin, Output, Pin, PinState::Low, PushPull},
     prelude::*,
     timer::delay::SysDelay,
 };
@@ -14,22 +14,25 @@ pub struct DataReport {
     pub y: i8,
 }
 
-const P: char = 'B';
-const N_CLK: u8 = 8;
-const N_DATA: u8 = 9;
+const CC_READ_DATA: u8 = 0xEB;
+const CC_SNSTVTY: u8 = 0x4A;
+const CC_RAM: u8 = 0xE2;
+const CC_SET: u8 = 0x81;
+const CC_ENABLE: u8 = 0xF4;
+const CC_STREAM_MODE: u8 = 0xEA;
 
-pub struct TrackPoint {
-    pub scl: gpio::DynamicPin<P, N_CLK>,
-    pub sda: gpio::DynamicPin<P, N_DATA>,
-    pub rst: gpio::gpiob::PB7<gpio::Output<gpio::PushPull>>,
+pub struct TrackPoint<const P: char, const CLK: u8, const DATA: u8, const RST: u8> {
+    pub scl: DynamicPin<P, CLK>,
+    pub sda: DynamicPin<P, DATA>,
+    pub rst: Pin<P, RST, Output<PushPull>>,
     pub delay: SysDelay,
 }
 
-impl TrackPoint {
+impl<const P: char, const CLK: u8, const DATA: u8, const RST: u8> TrackPoint<P, CLK, DATA, RST> {
     pub fn new(
-        scl: gpio::DynamicPin<P, N_CLK>,
-        sda: gpio::DynamicPin<P, N_DATA>,
-        rst: gpio::gpiob::PB7<gpio::Output<gpio::PushPull>>,
+        scl: DynamicPin<P, CLK>,
+        sda: DynamicPin<P, DATA>,
+        rst: Pin<P, RST, Output<PushPull>>,
         delay: SysDelay,
     ) -> Self {
         Self {
@@ -37,6 +40,16 @@ impl TrackPoint {
             sda,
             rst,
             delay,
+        }
+    }
+
+    pub fn query_data_report(&mut self) -> DataReport {
+        self.write(CC_READ_DATA);
+        self.read();
+        DataReport {
+            state: self.read(),
+            x: self.read() as i8,
+            y: self.read() as i8,
         }
     }
 
@@ -74,20 +87,19 @@ impl TrackPoint {
 
     pub fn reset(&mut self) {
         self.rst.set_high();
-        self.delay.delay_ms(2000_u16);
+        self.delay.delay_ms(1000_u16);
         self.rst.set_low();
     }
 
     pub fn set_sensitivity_factor(&mut self, sensitivity_factor: u8) {
-        self.write_to_ram_location(0x4a, sensitivity_factor);
+        self.write_to_ram_location(CC_SNSTVTY, sensitivity_factor);
     }
 
     pub fn write_to_ram_location(&mut self, location: u8, value: u8) {
-        self.write(0xe2);
-
+        self.write(CC_RAM);
         self.read();
 
-        self.write(0x81);
+        self.write(CC_SET);
         self.read();
 
         self.write(location);
@@ -98,9 +110,9 @@ impl TrackPoint {
     }
 
     pub fn set_stream_mode(&mut self) {
-        self.write(0xea);
+        self.write(CC_STREAM_MODE);
         self.read();
-        self.write(0xf4);
+        self.write(CC_ENABLE);
         self.read();
 
         self.set_scl_hi();

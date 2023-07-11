@@ -7,6 +7,8 @@ use panic_halt as _;
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true)]
 mod app {
     use core::mem::MaybeUninit;
+    use frunk::HList;
+
     use stm32f4xx_hal::{
         gpio::alt::otg_fs::{Dm::PA11, Dp::PA12},
         otg_fs::{UsbBus, UsbBusType, USB},
@@ -15,23 +17,30 @@ mod app {
     };
     use trackpoint_mouse::trackpoint::TrackPoint;
     use usb_device::{bus::UsbBusAllocator, prelude::*};
-    use usbd_hid::{
-        descriptor::{generator_prelude::SerializedDescriptor, MouseReport},
-        hid_class::HIDClass,
+    use usbd_human_interface_device::{
+        device::mouse::{BootMouse, BootMouseConfig, BootMouseReport},
+        prelude::*,
     };
+
+    const TP_P: char = 'B';
+    const TP_CLK: u8 = 8;
+    const TP_DATA: u8 = 9;
+    const TP_RST: u8 = 7;
 
     #[shared]
     struct Shared {
-        hid: HIDClass<'static, UsbBusType>,
-        trackpoint: TrackPoint,
-    }
-
-    #[local]
-    struct Local {
+        mixed_hid: UsbHidClass<'static, UsbBusType, HList!(BootMouse<'static, UsbBusType>,)>,
+        trackpoint: TrackPoint<TP_P, TP_CLK, TP_DATA, TP_RST>,
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
     }
 
-    #[init(local = [ep_memory: [u32; 1024] = [0; 1024], usb_bus: MaybeUninit<UsbBusAllocator<UsbBusType>> = MaybeUninit::uninit()])]
+    #[local]
+    struct Local {}
+
+    #[init(local = [
+        ep_memory: [u32; 1024] = [0; 1024],
+        usb_bus: MaybeUninit<UsbBusAllocator<UsbBusType>> = MaybeUninit::uninit()
+    ])]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         let rcc = ctx.device.RCC.constrain();
         let clocks = rcc
@@ -66,42 +75,59 @@ mod app {
         timer.start(1.kHz()).unwrap();
         timer.listen(Event::Update);
 
-        let usb_bus = ctx.local.usb_bus;
-        let usb_bus = usb_bus.write(UsbBus::new(usb, ctx.local.ep_memory));
+        let usb_bus = ctx
+            .local
+            .usb_bus
+            .write(UsbBus::new(usb, ctx.local.ep_memory));
 
-        let hid = HIDClass::new(usb_bus, MouseReport::desc(), 1);
+        let mixed_hid = UsbHidClassBuilder::new()
+            .add_device(BootMouseConfig::default())
+            .build(usb_bus);
+
         let usb_dev = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x2023, 0x0610))
             .manufacturer("Custom KeyBoard Maker")
             .product("Trackpoint Mouse")
             .serial_number("20221010")
             .device_class(0)
             .build();
-
         (
-            Shared { hid, trackpoint },
-            Local { usb_dev },
+            Shared {
+                mixed_hid,
+                trackpoint,
+                usb_dev,
+            },
+            Local {},
             init::Monotonics(),
         )
     }
 
-    #[task(binds=TIM2, shared = [hid, trackpoint])]
+    #[task(binds=TIM2, shared = [mixed_hid, trackpoint], local=[])]
     fn tp_data(ctx: tp_data::Context) {
-        (ctx.shared.trackpoint, ctx.shared.hid).lock(|trackpoint, hid| {
+        (ctx.shared.mixed_hid, ctx.shared.trackpoint).lock(|mixed_hid, trackpoint| {
             let (state, tx, ty) = (trackpoint.read(), trackpoint.read(), trackpoint.read());
-            let report = MouseReport {
+            let report = BootMouseReport {
                 x: tx as i8,
                 y: -(ty as i8),
                 buttons: state & 7u8,
-                wheel: 0,
-                pan: 0,
             };
-            hid.push_input(&report).ok();
+
+            let mouse = mixed_hid.device();
+            match mouse.write_report(&report) {
+                Err(UsbHidError::WouldBlock) => {}
+                Ok(_) => {}
+                Err(e) => {
+                    core::panic!("Failed to write mouse report: {:?}", e)
+                }
+            }
         });
     }
 
-    #[task(binds=OTG_FS, shared = [hid], local=[ usb_dev])]
-    fn on_usb(mut ctx: on_usb::Context) {
-        let usb_dev = ctx.local.usb_dev;
-        ctx.shared.hid.lock(|hid| if !usb_dev.poll(&mut [hid]) {});
+    #[task(binds=OTG_FS, shared = [mixed_hid, usb_dev])]
+    fn on_usb(ctx: on_usb::Context) {
+        (ctx.shared.usb_dev, ctx.shared.mixed_hid).lock(
+            |usb_dev, mixed_hid| {
+                if usb_dev.poll(&mut [mixed_hid]) {}
+            },
+        );
     }
 }

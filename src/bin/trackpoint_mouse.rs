@@ -73,7 +73,7 @@ mod app {
         p_clk.trigger_on_edge(&mut ctx.device.EXTI, Edge::Falling);
 
         let mut trackpoint = TrackPoint::new(p_clk, p_data, p_rst, delay);
-        // trackpoint.reset(); // seems not necessary when power on
+        trackpoint.reset();
         trackpoint.set_sensitivity_factor(TP_SFACTOR_HIGH);
         trackpoint.set_stream_mode();
 

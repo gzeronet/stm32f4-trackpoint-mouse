@@ -29,8 +29,8 @@ So, I tried rewriting the module in rust, and it works perfect as I wanted now.
 
 ## Feature
 
-* Use stm32f4xx_hal, rtic, usb related.
-* TIM EXTI, (GPIO EXTI not work on dynamic pin, hope some one can help).
+* Use stm32f4xx_hal, rtic, ps/2 to usb.
+* TIM EXTI, GPIO EXTI.
 * Trackpoint stream mode, (remote mode works, but I don't need).
 
 ---
@@ -43,12 +43,14 @@ So, I tried rewriting the module in rust, and it works perfect as I wanted now.
 
 ---
 
-## Known Issue
+## Updated
 
-Debug bin works fine, it looks weird that release build bin not work. Seems the while loop for scl is blocked when reading trackpoint byte. Not sure how to fix it, need experter help.
+Use open drain mode now, need pull up SDA & SCL with 4.7k resister for each other.
 
 ---
 
 ## TODO
+
+Continue working with trackpoint keyboard in rust & stm32f4...
 
 Include keyoard code part like [keyberon](https://github.com/TeXitoi/keyberon), maybe will adjust the repo name.

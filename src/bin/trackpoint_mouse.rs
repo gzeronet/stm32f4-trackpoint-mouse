@@ -10,27 +10,28 @@ mod app {
     use frunk::HList;
 
     use stm32f4xx_hal::{
-        gpio::alt::otg_fs::{Dm::PA11, Dp::PA12},
+        gpio::{
+            alt::otg_fs::{Dm::PA11, Dp::PA12},
+            Edge,
+            PinState::Low,
+        },
         otg_fs::{UsbBus, UsbBusType, USB},
         prelude::*,
         timer::Event,
     };
-    use trackpoint_mouse::trackpoint::TrackPoint;
+    use trackpoint_mouse::trackpoint::{
+        TrackPoint, RST as TP_RST, SCL as TP_SCL, SDA as TP_SDA, SFACTOR_HIGH as TP_SFACTOR_HIGH,
+    };
     use usb_device::{bus::UsbBusAllocator, prelude::*};
     use usbd_human_interface_device::{
-        device::mouse::{BootMouse, BootMouseConfig, BootMouseReport},
+        device::mouse::{WheelMouse, WheelMouseConfig, WheelMouseReport},
         prelude::*,
     };
 
-    const TP_P: char = 'B';
-    const TP_CLK: u8 = 8;
-    const TP_DATA: u8 = 9;
-    const TP_RST: u8 = 7;
-
     #[shared]
     struct Shared {
-        mixed_hid: UsbHidClass<'static, UsbBusType, HList!(BootMouse<'static, UsbBusType>,)>,
-        trackpoint: TrackPoint<TP_P, TP_CLK, TP_DATA, TP_RST>,
+        mixed_hid: UsbHidClass<'static, UsbBusType, HList!(WheelMouse<'static, UsbBusType>,)>,
+        trackpoint: TrackPoint,
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
     }
 
@@ -41,7 +42,7 @@ mod app {
         ep_memory: [u32; 1024] = [0; 1024],
         usb_bus: MaybeUninit<UsbBusAllocator<UsbBusType>> = MaybeUninit::uninit()
     ])]
-    fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
+    fn init(mut ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         let rcc = ctx.device.RCC.constrain();
         let clocks = rcc
             .cfgr
@@ -61,14 +62,19 @@ mod app {
         };
 
         let gpiob = ctx.device.GPIOB.split();
-        let p_rst = gpiob.pb7.into_push_pull_output();
-        let p_clk = gpiob.pb8.into_dynamic();
-        let p_data = gpiob.pb9.into_dynamic();
+        let p_rst: TP_RST = gpiob.pb7.into_push_pull_output_in_state(Low);
+        let mut p_clk: TP_SCL = gpiob.pb8.into_open_drain_output();
+        let p_data: TP_SDA = gpiob.pb9.into_open_drain_output();
         let delay = ctx.core.SYST.delay(&clocks);
 
+        let mut syscfg = ctx.device.SYSCFG.constrain();
+        p_clk.make_interrupt_source(&mut syscfg);
+        p_clk.enable_interrupt(&mut ctx.device.EXTI);
+        p_clk.trigger_on_edge(&mut ctx.device.EXTI, Edge::Falling);
+
         let mut trackpoint = TrackPoint::new(p_clk, p_data, p_rst, delay);
-        trackpoint.reset();
-        trackpoint.set_sensitivity_factor(0xCC);
+        // trackpoint.reset(); // seems not necessary when power on
+        trackpoint.set_sensitivity_factor(TP_SFACTOR_HIGH);
         trackpoint.set_stream_mode();
 
         let mut timer = ctx.device.TIM2.counter_hz(&clocks);
@@ -81,7 +87,7 @@ mod app {
             .write(UsbBus::new(usb, ctx.local.ep_memory));
 
         let mixed_hid = UsbHidClassBuilder::new()
-            .add_device(BootMouseConfig::default())
+            .add_device(WheelMouseConfig::default())
             .build(usb_bus);
 
         let usb_dev = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x2023, 0x0610))
@@ -101,22 +107,32 @@ mod app {
         )
     }
 
-    #[task(binds=TIM2, shared = [mixed_hid, trackpoint], local=[])]
-    fn tp_data(ctx: tp_data::Context) {
-        (ctx.shared.mixed_hid, ctx.shared.trackpoint).lock(|mixed_hid, trackpoint| {
-            let (state, tx, ty) = (trackpoint.read(), trackpoint.read(), trackpoint.read());
-            let report = BootMouseReport {
-                x: tx as i8,
-                y: -(ty as i8),
-                buttons: state & 7u8,
-            };
+    #[task(binds=EXTI9_5, shared = [trackpoint])]
+    fn rx_trackpoint_data(mut ctx: rx_trackpoint_data::Context) {
+        ctx.shared.trackpoint.lock(|tp| {
+            tp.cache_stream_data_bit(); // must read data before clear interrupt
+            tp.scl.clear_interrupt_pending_bit();
+        })
+    }
 
-            let mouse = mixed_hid.device();
-            match mouse.write_report(&report) {
-                Err(UsbHidError::WouldBlock) => {}
-                Ok(_) => {}
-                Err(e) => {
-                    core::panic!("Failed to write mouse report: {:?}", e)
+    #[task(binds=TIM2, shared = [mixed_hid, trackpoint])]
+    fn tx_mouse_report(ctx: tx_mouse_report::Context) {
+        (ctx.shared.mixed_hid, ctx.shared.trackpoint).lock(|hid, tp| {
+            if tp.is_data_available() {
+                let report = WheelMouseReport {
+                    x: tp.data.x,
+                    y: -tp.data.y,
+                    buttons: tp.data.state % 16 % 7, // BTN1: 1, BTN2: 2, BTN3: 4
+                    vertical_wheel: 0,
+                    horizontal_wheel: 0,
+                };
+                let mouse = hid.device();
+                match mouse.write_report(&report) {
+                    Err(UsbHidError::WouldBlock) => {}
+                    Ok(_) => {}
+                    Err(e) => {
+                        core::panic!("Failed to write mouse report: {:?}", e)
+                    }
                 }
             }
         });
@@ -125,8 +141,8 @@ mod app {
     #[task(binds=OTG_FS, shared = [mixed_hid, usb_dev])]
     fn on_usb(ctx: on_usb::Context) {
         (ctx.shared.usb_dev, ctx.shared.mixed_hid).lock(
-            |usb_dev, mixed_hid| {
-                if usb_dev.poll(&mut [mixed_hid]) {}
+            |usb_dev, hid| {
+                if usb_dev.poll(&mut [hid]) {}
             },
         );
     }

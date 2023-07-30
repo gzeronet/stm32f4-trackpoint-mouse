@@ -3,7 +3,10 @@
 use panic_halt as _;
 
 use stm32f4xx_hal::{
-    gpio::{DynamicPin, Output, Pin, PinState::Low, PushPull},
+    gpio::{
+        gpiob::{PB7, PB8, PB9},
+        OpenDrain, Output, PushPull,
+    },
     prelude::*,
     timer::delay::SysDelay,
 };
@@ -14,28 +17,42 @@ pub struct DataReport {
     pub y: i8,
 }
 
-const CC_READ_DATA: u8 = 0xEB;
 const CC_SNSTVTY: u8 = 0x4A;
 const CC_RAM: u8 = 0xE2;
 const CC_SET: u8 = 0x81;
 const CC_ENABLE: u8 = 0xF4;
 const CC_STREAM_MODE: u8 = 0xEA;
 
-pub struct TrackPoint<const P: char, const CLK: u8, const DATA: u8, const RST: u8> {
-    pub scl: DynamicPin<P, CLK>,
-    pub sda: DynamicPin<P, DATA>,
-    pub rst: Pin<P, RST, Output<PushPull>>,
-    pub delay: SysDelay,
+pub const SFACTOR_HIGH: u8 = 0xCC;
+pub type RST = PB7<Output<PushPull>>;
+pub type SCL = PB8<Output<OpenDrain>>;
+pub type SDA = PB9<Output<OpenDrain>>;
+
+pub struct TrackPoint {
+    pub data: DataReport,
+    bitcount: u8,
+    incoming: u8,
+    counter: u8,
+    data_available: bool,
+
+    pub scl: SCL,
+    sda: SDA,
+    rst: RST,
+    delay: SysDelay,
 }
 
-impl<const P: char, const CLK: u8, const DATA: u8, const RST: u8> TrackPoint<P, CLK, DATA, RST> {
-    pub fn new(
-        scl: DynamicPin<P, CLK>,
-        sda: DynamicPin<P, DATA>,
-        rst: Pin<P, RST, Output<PushPull>>,
-        delay: SysDelay,
-    ) -> Self {
+impl TrackPoint {
+    pub fn new(scl: SCL, sda: SDA, rst: RST, delay: SysDelay) -> Self {
         Self {
+            data: DataReport {
+                state: 0,
+                x: 0,
+                y: 0,
+            },
+            bitcount: 0,
+            incoming: 0,
+            counter: 0,
+            data_available: false,
             scl,
             sda,
             rst,
@@ -43,46 +60,40 @@ impl<const P: char, const CLK: u8, const DATA: u8, const RST: u8> TrackPoint<P, 
         }
     }
 
-    pub fn query_data_report(&mut self) -> DataReport {
-        self.write(CC_READ_DATA);
-        self.read();
-        DataReport {
-            state: self.read(),
-            x: self.read() as i8,
-            y: self.read() as i8,
-        }
+    pub fn is_data_available(&self) -> bool {
+        self.data_available
     }
 
-    pub fn is_scl_hi(&mut self) -> bool {
-        self.scl.is_high().unwrap()
+    pub fn is_scl_hi(&self) -> bool {
+        self.scl.is_high()
     }
 
-    pub fn is_scl_lo(&mut self) -> bool {
-        self.scl.is_low().unwrap()
+    pub fn is_scl_lo(&self) -> bool {
+        self.scl.is_low()
     }
 
-    pub fn is_sda_hi(&mut self) -> bool {
-        self.sda.is_high().unwrap()
+    pub fn is_sda_hi(&self) -> bool {
+        self.sda.is_high()
     }
 
-    pub fn is_sda_lo(&mut self) -> bool {
-        self.sda.is_low().unwrap()
+    pub fn is_sda_lo(&self) -> bool {
+        self.sda.is_low()
     }
 
     pub fn set_scl_hi(&mut self) {
-        self.scl.make_pull_up_input();
+        self.scl.set_high()
     }
 
     pub fn set_scl_lo(&mut self) {
-        self.scl.make_push_pull_output_in_state(Low);
+        self.scl.set_low()
     }
 
     pub fn set_sda_hi(&mut self) {
-        self.sda.make_pull_up_input()
+        self.sda.set_high()
     }
 
     pub fn set_sda_lo(&mut self) {
-        self.sda.make_push_pull_output_in_state(Low);
+        self.sda.set_low()
     }
 
     pub fn reset(&mut self) {
@@ -183,5 +194,35 @@ impl<const P: char, const CLK: u8, const DATA: u8, const RST: u8> TrackPoint<P, 
         while self.is_scl_hi() {}
         while self.is_scl_lo() || self.is_sda_lo() {}
         self.set_scl_lo();
+    }
+
+    pub fn cache_stream_data_bit(&mut self) {
+        self.data_available = false;
+        let val = self.is_sda_hi() as u8;
+        self.bitcount += 1;
+        match self.bitcount {
+            2..=9 => self.incoming |= val << self.bitcount - 2, // bit 0 ~ 7
+            11 => {
+                match self.counter {
+                    0 => {
+                        self.data.state = self.incoming;
+                        self.counter += 1;
+                    }
+                    1 => {
+                        self.data.x = self.incoming as i8;
+                        self.counter += 1;
+                    }
+                    2 => {
+                        self.data.y = self.incoming as i8;
+                        self.counter = 0;
+                        self.data_available = true;
+                    }
+                    _ => {}
+                }
+                self.bitcount = 0;
+                self.incoming = 0;
+            }
+            _ => {}
+        }
     }
 }

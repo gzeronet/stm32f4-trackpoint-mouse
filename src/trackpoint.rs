@@ -2,14 +2,12 @@
 
 use panic_halt as _;
 
-use stm32f4xx_hal::{
-    gpio::{
-        gpiob::{PB7, PB8, PB9},
-        OpenDrain, Output, PushPull,
-    },
+use hal::{
+    gpio::{EPin, OpenDrain, Output, PushPull},
     prelude::*,
     timer::delay::SysDelay,
 };
+use stm32f4xx_hal as hal;
 
 pub struct DataReport {
     pub state: u8,
@@ -17,6 +15,8 @@ pub struct DataReport {
     pub y: i8,
 }
 
+// Command code in doc [TrackPoint System Version 4.0 Engineering Specification]
+const CC_READ_DATA: u8 = 0xEB;
 const CC_SNSTVTY: u8 = 0x4A;
 const CC_RAM: u8 = 0xE2;
 const CC_SET: u8 = 0x81;
@@ -24,16 +24,16 @@ const CC_ENABLE: u8 = 0xF4;
 const CC_STREAM_MODE: u8 = 0xEA;
 
 pub const SFACTOR_HIGH: u8 = 0xCC;
-pub type RST = PB7<Output<PushPull>>;
-pub type SCL = PB8<Output<OpenDrain>>;
-pub type SDA = PB9<Output<OpenDrain>>;
+pub type RST = EPin<Output<PushPull>>;
+pub type SCL = EPin<Output<OpenDrain>>;
+pub type SDA = EPin<Output<OpenDrain>>;
 
 pub struct TrackPoint {
     pub data: DataReport,
     bitcount: u8,
     incoming: u8,
     counter: u8,
-    data_available: bool,
+    pub data_available: bool,
 
     pub scl: SCL,
     sda: SDA,
@@ -60,8 +60,14 @@ impl TrackPoint {
         }
     }
 
-    pub fn is_data_available(&self) -> bool {
-        self.data_available
+    pub fn query_data_report(&mut self) -> DataReport {
+        self.write(CC_READ_DATA);
+        self.read();
+        DataReport {
+            state: self.read(),
+            x: self.read() as i8,
+            y: self.read() as i8,
+        }
     }
 
     pub fn is_scl_hi(&self) -> bool {
